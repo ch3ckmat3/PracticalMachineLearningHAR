@@ -1,0 +1,116 @@
+---
+title: "Practical Machine Learning - Human Activity Recognition (HAR)"
+author: "Sohail Iqbal"
+date: "Sunday, July 26, 2015"
+output:
+  html_document:
+    keep_md: yes
+  pdf_document: default
+---
+
+## Introduction
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self-movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+## Project Goal
+The goal of this project is to predict the manner in which the people did the exercises, which is defined in the "classe" variable in the training dataset. The goal is also describing how the prediction model is built, how it is cross validated, evaluation of the expected out of sample error, and explaining the reasons of the choices made to build this model. The prediction model will be used to predict 20 different test cases.
+
+## Datasets
+Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions, and the data was recorded for evaluation purposes, the 5 classes of their exercise activity are:
+
+A: Exactly according to the specification
+
+B: Throwing the elbows to the front 
+
+C: Lifting the dumbbell only halfway
+
+D: Lowering the dumbbell only halfway
+
+E: Throwing the hips to the front
+
+### Data Source
+The training data for this project are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv 
+The test data are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv 
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. 
+
+```{r echo=TRUE, message=FALSE}
+library(caret)
+library(randomForest)
+```
+
+### Data Wrangling (Loading & Preprocessing)
+Here we load the above downloaded datasets from "pml-training.csv" and "pml-testing.csv" in the R data frames. We replace the character values of NA, NaN, #DIV/0!, or blank values with R's built-in NA type when loading the data, so it can be handled by the corresponding methods.
+
+```{r cache=TRUE}
+# pointing to project folder
+setwd("~/R/Projects/Practical Machine Learning - HAR/")
+
+# loading raw data
+trainingData <- read.csv("pml-training.csv", na.strings=c("NA","NaN","#DIV/0!", ""))
+testingData <- read.csv("pml-testing.csv", na.strings=c("NA","NaN","#DIV/0!", ""))
+
+# check loaded data
+dim(trainingData)
+dim(testingData)
+```
+
+After simple exploration, we found out that several columns of the raw data set do not contain any values, so we will remove those columns. We will also delete the first 7 columns, namely X, user_name, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp, new_window, and num_window. Since columns have no relevance on impact on the prediction outcome.
+
+We also remove the columns with more than 60% of missing values to reduce the noise in the data.
+
+```{r cache=TRUE}
+#removing unusable columns
+trainingData <- trainingData[,-nearZeroVar(trainingData)]
+trainingData <- trainingData[,-c(1:7)]
+trainingData$classe <- as.factor(trainingData$classe)
+
+# removing columns with 60%+ NAs
+tempData<-colSums(is.na(trainingData)) <= 0.6*nrow(trainingData)
+trainingData<-trainingData[, tempData]
+rm(tempData)
+
+# making final testing dataset dimensions same as training data
+testingData <- testingData[, names(testingData) %in% names(trainingData)]
+
+# checking final datasets
+dim(trainingData)
+dim(testingData)
+```
+
+### Data Preparation for Testing and Training
+Here we will partition the data for training and testing the models. We will use the 60% of the training dataset for training the prediction model and 40% to test the model. We will then use the original testing dataset from "pml-testing.csv" to make the predictions.
+```{r cache=TRUE}
+inTrain <- createDataPartition(y=trainingData$classe, p=0.6, list=FALSE)
+subsetTraining <- trainingData[inTrain,]
+subsetTesting <- trainingData[-inTrain,]
+```
+
+## Training The Model using Random Forests
+Since this is a classification problem, the Classification Tree and Random Forest are the candidates to best predicts the outcomes from this data. After some initial testing we opted for Random Forrest algorithm as the accuracy rate of this algorithm was way better than Classification Tree method. Following model trains on the testing data subset after running through a 500 trees with 3 predictors each time.
+```{r cache=TRUE}
+set.seed(112233)
+modelFit <- train(classe ~ ., method="rf", data=subsetTraining,
+                  ntree=500, tuneGrid=data.frame(.mtry = 3))
+modelFit$finalModel
+modelFit
+```
+
+### Accuracy of the Algorithm
+Here we will evaluate the performance of the model on the validation data set here called (subsetTesting). A Confusion Matrix, the estimated accuracy and the estimated out-of-sample error of the model are calculated.
+```{r cache=TRUE}
+predictedData <- predict(modelFit, subsetTesting)
+confusionMatrix(subsetTesting$classe, predictedData)
+postResample(predictedData, subsetTesting$classe)
+```
+
+## Testing The Model on Test Dataset
+Now we have a trained model with 98%+ accuracy, we will use this model to predict the outcome on the given raw testing data from the file "pml-testing.csv".
+```{r cache=TRUE}
+# final prediction on original testing set (20 samples)
+predictTestingData <- predict(modelFit, testingData)
+
+# adding the predcted class to the testing data set (for reference)
+testingData$classe <- predictTestingData
+
+#final output
+predictTestingData
+```
